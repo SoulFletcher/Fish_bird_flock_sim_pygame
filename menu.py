@@ -16,14 +16,20 @@ class Menu:
         form.pack()
         for (ix, label) in enumerate(fields):
             lab = Label(form, text=label)
-            ent = Entry(form)
+            if label == 'c_perception' or label == 'c_amount':
+                ent = Scale(form, orient=HORIZONTAL, from_=0, to=300)
+            elif label == 'c_size' or label == 'c_tail_size':
+                ent = Scale(form, orient=HORIZONTAL, from_=0, to=50)
+            elif label == 'c_view_angle':
+                ent = Scale(form, orient=HORIZONTAL, from_=0, to=360)
+            else:
+                ent = Scale(form, orient=HORIZONTAL, from_=0, to=20)
             lab.grid(row=ix, column=0)
             ent.grid(row=ix, column=1)
             self.entries[label] = ent
-            self.entries[label].insert(0, getattr(self.your_class, label))
-        Button(window, text="Update", command=self.update_button).pack(side=LEFT)
+            self.entries[label].set(getattr(self.your_class, label))
         return window
 
-    def update_button(self):
+    def update_(self):
         for key, enter in self.entries.items():
             setattr(self.your_class, key, float(enter.get()))

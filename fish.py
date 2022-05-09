@@ -1,7 +1,7 @@
 import math
 import random
 import pygame
-import pygame.gfxdraw
+import taichi as ti
 from pygame.math import Vector2
 from menu import Menu
 
@@ -10,9 +10,16 @@ HEIGHT = 800
 
 
 class Fishes:
-    @staticmethod
-    def create_fishes(amount):
-        return [Fish() for _ in range(amount)]
+
+    def __init__(self, amount):
+        self.fishes = [Fish() for _ in range(amount)]
+
+    def update(self):
+        for i, fish in enumerate(self.fishes):
+
+            fish.move()
+            fish.brain()
+            fish.show()
 
 
 class Fish:
@@ -20,11 +27,11 @@ class Fish:
     c_size = 6
     c_tail_size = 18
     c_view_angle = 270
-    c_separation_force = 0.7
-    c_align_force = 0.1
-    c_cohesion_force = 0.4
+    c_separation_force = 4
+    c_align_force = 2
+    c_cohesion_force = 4
     c_max_speed = 3
-    c_amount = 50
+    c_amount = 100
 
     def __init__(self):
         self.position = Vector2(random.randint(0, WIDTH), random.randint(0, HEIGHT))
@@ -35,9 +42,7 @@ class Fish:
         self.tail = []
 
     def move(self):
-        self.acc += self.separation()
-        self.acc += self.cohesion()
-        self.acc += self.align()
+        self.acc += self.rules()
         self.position += self.velocity
         self.velocity += self.acc
         self.velocity = self.velocity.normalize() * self.c_max_speed
@@ -47,7 +52,8 @@ class Fish:
         if len(self.tail) < self.c_tail_size:
             self.tail.append(self.position.xy)
         else:
-            self.tail.pop(0)
+            if len(self.tail) != 0:
+                self.tail.pop(0)
 
     def border_logic(self):
         if self.position.x >= WIDTH:
@@ -189,59 +195,41 @@ class Fish:
                        self.position.y + _side * math.sin(math.radians(self.angle + 180 - _angle_blind / 2)))
             return point_1, point_2
 
-    def separation(self):
+    def rules(self):
         steering = Vector2(0, 0)
         total = 0
-        avg_vector = Vector2(0, 0)
-        for fish in App.fishes:
-            distance = Vector2(fish.position - self.position).length()
-            if self.position != fish.position and distance < self.c_perception:
-                diff = self.position - fish.position
-                diff /= distance
-                avg_vector += diff
-                total += 1
-        if total > 0:
-            avg_vector /= total
-            if steering.length() > 0:
-                avg_vector = avg_vector.normalize()
-            steering = avg_vector - self.velocity
-
-            steering = steering.normalize() * self.c_separation_force
-
-        return steering
-
-    def align(self):
-        steering = Vector2(0, 0)
-        total = 0
-        avg_vec = Vector2(0, 0)
-        for fish in App.fishes:
-            if (fish.position - self.position).length() < self.c_perception and self.blind_spot(fish) is False:
-                avg_vec += fish.velocity
-                total += 1
-        if total > 0:
-            avg_vec /= total
-            avg_vec = avg_vec.normalize()
-            steering = (avg_vec - self.velocity) * self.c_align_force
-
-        return steering
-
-    def cohesion(self):
-        steering = Vector2(0, 0)
-        total = 0
+        blind_total = 0
+        avg_vector_sep = Vector2(0, 0)
+        avg_vector_align = Vector2(0, 0)
         center_of_mass = Vector2(0, 0)
         for fish in App.fishes:
-            if Vector2(fish.position - self.position).length() < self.c_perception and \
-                    fish != self and self.blind_spot(fish) is False:
-                center_of_mass += fish.position
-                total += 1
+            if self.position != fish.position and abs(fish.position.x - self.position.x < self.c_perception) and abs(
+                    fish.position.y - self.position.y < self.c_perception):
+                distance = Vector2(fish.position - self.position).length()
+                if distance < self.c_perception:
+                    diff = self.position - fish.position
+                    diff /= distance
+                    avg_vector_sep += diff
+                    total += 1
+                if distance < self.c_perception and self.blind_spot(fish) is False:
+                    avg_vector_align += fish.velocity
+                    center_of_mass += fish.position
+                    blind_total += 1
+
         if total > 0:
-            center_of_mass /= total
+            avg_vector_sep /= total
+            avg_vector_sep = avg_vector_sep.normalize()
+            steering += (avg_vector_sep - self.velocity).normalize() * (self.c_separation_force / 10)
+        if blind_total > 0:
+            avg_vector_align /= blind_total
+            center_of_mass /= blind_total
+            avg_vector_align = avg_vector_align.normalize()
             vec_to_com = center_of_mass - self.position
             if Vector2(vec_to_com).length() > 0:
                 vec_to_com = vec_to_com.normalize()
-            steering = vec_to_com - self.velocity
 
-            steering = steering.normalize() * self.c_cohesion_force
+            steering += (vec_to_com - self.velocity).normalize() * (self.c_cohesion_force / 10)
+            steering += (avg_vector_align - self.velocity).normalize() * (self.c_align_force / 10)
 
         return steering
 
@@ -269,8 +257,10 @@ class Fish:
 
 class App:
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    fishes = Fishes().create_fishes(Fish.c_amount)
-    window = Menu(Fish).make_widgets()
+    fishes_cls = Fishes(Fish.c_amount)
+    fishes = fishes_cls.fishes
+    window_cls = Menu(Fish)
+    window = window_cls.make_widgets()
 
     def run(self):
         pygame.init()
@@ -282,17 +272,12 @@ class App:
                     self.fishes.append(Fish())
                 if amount_save > Fish.c_amount:
                     self.fishes.pop(0)
+            self.window_cls.update_()
             self.window.update()
             App.screen.fill(pygame.Color('Black'))
-            for fish in self.fishes:  # Рыба всегда:
-                fish.show()  # Существует
-                fish.move()  # Плывёт
-                fish.brain()  # Думает
+            self.fishes_cls.update()
             pygame.display.flip()
-            clock.tick(60)
+            clock.tick(30)
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     exit()
-
-
-
